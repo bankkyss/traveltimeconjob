@@ -1,12 +1,13 @@
 import joblib
 import shapely
 import geohash
+#import time
 import osmnx as ox
 import pandas as pd
 import networkx as nx
 import multiprocessing
 import numpy as np
-import time
+import math
 import os
 from pytz import timezone
 dirname = os.path.dirname(__file__)
@@ -14,17 +15,57 @@ from datetime import datetime,timedelta
 from sqlalchemy import create_engine
 from shapely.geometry import Point, LineString
 from geopy.distance import great_circle
-
+import requests
+from bs4 import BeautifulSoup
 #### config 
 thai = timezone('Asia/Bangkok')
 hostname=os.getenv('hostname', "161.200.116.30:31212")
 dbname='iticprob'
 uname="apiitic_1"
 pwd="iticprob1"
-
+interresttime=datetime.now(thai)
 #### loaddata
+station={'KhlongToeiOffice':30,
+ 'PhraKhanongPumpingStation':81,
+ 'BenchasiriPark':95,
+ 'Rama4PumpingStation':80,
+ 'PathumWanOffice':8,
+ 'Sawasdee Pier':3}
 datahash,G,nodes,edges=joblib.load(os.path.join(dirname,'fortraveltime.p'))
-keyway=joblib.load(os.path.join(dirname,'wayrenamerama4.p'))
+keyway=joblib.load(os.path.join(dirname,'wayrenamerama4v2rebug.p'))
+
+def getraindata(ID):
+    try:
+        URL = "https://weather.bangkok.go.th/rain/StationDetail?id="+str(ID)
+        page = requests.get(URL)
+        soup = BeautifulSoup(page.content, "html.parser")
+        tags=soup.find_all("li", class_="list-group-item")
+        for tag in tags:
+            data=[]
+            for cont in [str(i.string) for i  in tag]:
+                if type(cont)==str:
+                    data.append(cont.replace("\r","").replace("\n","").replace(" ",""))
+            if 'ฝนสะสม15นาที' in data:
+                raincount=(float(data[1][:-3]))
+            if 'เวลาข้อมูล' in data:
+                strtime=(data[1][:-2])
+    except:
+        raincount=float('nan')
+    return raincount
+
+def rainstation(timestat):
+    try:
+        data={'time':timestat}
+        for po in station:
+            data[po]=getraindata(station[po])
+        rainindex=max([data[i] for i in station if not(math.isnan(data[i]))])
+        if rainindex>0:
+            data=pd.DataFrame([data])
+            engine = create_engine("mysql+pymysql://{user}:{pw}@{host}/{db}".format(host=hostname, db='raindata', user=uname, pw=pwd))
+            data.to_sql('rainstation', engine, index=False,if_exists="append")
+        return rainindex
+    except:
+        return float('nan')
 
 
 def tranfromdatase(lat,lon,bea):
@@ -216,9 +257,10 @@ def process(data,core=4):
     return data
 
 def process10min(date_time,core=4):
+    date_time=(date_time-timedelta(minutes=date_time.minute%10,seconds=date_time.second)).replace(second=00,microsecond=00)  
     data=getdata(date_time)
-    datatime=processsplit(data)
-    #datatime=process(data,core)
+    #datatime=processsplit(data)
+    datatime=process(data,core)
     datanow={'time':date_time}
     for i in keyway.keys():
         waydata=datatime[datatime.wayid.isin(keyway[i])]
@@ -233,10 +275,12 @@ def process10min(date_time,core=4):
     todb['day_of_week']=todb['time'].dt.dayofweek
     todb['hour']=todb['time'].dt.hour
     todb['minute']=todb['time'].dt.minute
+    todb['rain']=rainstation(date_time)
     engine = create_engine("mysql+pymysql://{user}:{pw}@{host}/{db}".format(host=hostname, db='itictraveltime', user=uname, pw=pwd))
     todb.to_sql('traveltimelink', engine, index=False,if_exists="append")
+    #print(datanow)
     #print("--- %s seconds ---" % (time.time() - start_time))
     return
 
-process10min(datetime.now(thai))
+process10min(interresttime)
 

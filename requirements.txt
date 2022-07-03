@@ -18,3 +18,4 @@ Geohash
 fastapi
 uvicorn
 python-geohash
+beautifulsoup4

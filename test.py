@@ -2,6 +2,9 @@ import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime,timedelta
 from pytz import timezone
+import requests
+import math
+from bs4 import BeautifulSoup
 #### config 
 thai = timezone('Asia/Bangkok')
 hostname="161.200.116.30:31212"
@@ -33,4 +36,51 @@ def getdata(endtime):
         data.timestamp=pd.to_datetime(data.timestamp)
     return(data)        
 #print(len(getdata(datetime.now(thai))))
-print(len(getdata(datetime(2022,2,1,0,0))))
+# date_time=datetime.now()
+# date_time=(date_time-timedelta(minutes=date_time.minute%10,seconds=date_time.second)).replace(second=00,microsecond=00)  
+# print(date_time)
+#print(len(getdata(datetime(2022,2,1,0,0))))
+def getraindata(ID):
+    try:
+        URL = "https://weather.bangkok.go.th/rain/StationDetail?id="+str(ID)
+        page = requests.get(URL)
+        soup = BeautifulSoup(page.content, "html.parser")
+        tags=soup.find_all("li", class_="list-group-item")
+        for tag in tags:
+            data=[]
+            for cont in [str(i.string) for i  in tag]:
+                if type(cont)==str:
+                    data.append(cont.replace("\r","").replace("\n","").replace(" ",""))
+            if 'ฝนสะสม15นาที' in data:
+                raincount=(float(data[1][:-3]))
+            if 'เวลาข้อมูล' in data:
+                strtime=(data[1][:-2])
+    except:
+        raincount=float('nan')
+    return raincount
+station={'KhlongToeiOffice':30,
+ 'PhraKhanongPumpingStation':81,
+ 'BenchasiriPark':95,
+ 'Rama4PumpingStation':80,
+ 'PathumWanOffice':8,
+ 'Sawasdee Pier':3}
+
+def rainstation(timestat):
+    try:
+        data={'time':timestat}
+        for po in station:
+            if po =='Sawasdee Pier':
+                data[po]=float('nan')
+            else:
+                data[po]=getraindata(station[po])
+        print(data)
+        print([data[i] for i in station if not(math.isnan(data[i])) ])
+        rainindex=max([data[i] for i in station if not(math.isnan(data[i])) ])
+        #data=pd.DataFrame([data])
+        #engine = create_engine("mysql+pymysql://{user}:{pw}@{host}/{db}".format(host=hostname, db='raindata', user=uname, pw=pwd))
+        #data.to_sql('rainstation', engine, index=False,if_exists="append")
+        return rainindex
+    except:
+        return float('nan')
+
+print(rainstation(12))
