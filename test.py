@@ -4,6 +4,7 @@ from datetime import datetime,timedelta
 from pytz import timezone
 import requests
 import math
+import numpy
 from bs4 import BeautifulSoup
 #### config 
 thai = timezone('Asia/Bangkok')
